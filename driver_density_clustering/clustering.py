@@ -14,7 +14,7 @@ def load_data(file_name):
     data = pd.read_csv(file_name, delimiter=',',
                        usecols=["user_id", "lon", "lat", "city_id"],
                        dtype={"user_id": str})
-    df = data.sample(n=200000)
+    df = data.sample(n=20000)
     return df.reset_index(drop=True)
 
 
@@ -120,7 +120,7 @@ def data_write_file(data, k_cluster, city, file_name):
         lat_list = [data.ix[i, "lat"] for i in k_cluster[k]]
         avg_lon = "%.6f" % (sum(lon_list) / float(len(lon_list)))
         avg_lat = "%.6f" % (sum(lat_list) / float(len(lat_list)))
-        result[key] = avg_lon + "," + avg_lat
+        result[key] = avg_lon + "," + avg_lat+","+str(len(lon_list))
         json_dict[str(city)].append(result)
     json_str = json.dumps(json_dict)
     fw.write(json_str + "\n")
@@ -142,7 +142,6 @@ def diff_city_model_train(input_path):
         k_cluster, old_core_objects = positon_dbscan(filter_data)
         # 计算结果转换为json 字符串
         data_write_file(filter_data, k_cluster, city, "data_set/%s0000.json" % str(city)[0:2])
-
 
 if __name__ == '__main__':
     diff_city_model_train("data_set/positon.csv")
