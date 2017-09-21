@@ -8,14 +8,22 @@ import numpy as np
 import math
 from geohash import *
 import json
+import random
 
 
 def load_data(file_name):
-    data = pd.read_csv(file_name, delimiter=',',
-                       usecols=["user_id", "lon", "lat", "city_id"],
+    data = pd.read_csv(file_name, delimiter='\001', header=None,
+                       usecols=[0, 1, 2, 3],
+                       names=["user_id", "lon", "lat", "city_id"],
                        dtype={"user_id": str})
-    df = data.sample(n=20000)
-    return df.reset_index(drop=True)
+    return data
+
+
+# def load_data(file_name):
+#     data = pd.read_csv(file_name, delimiter=',',
+#                        usecols=["user_id", "lon", "lat", "city_id"],
+#                        dtype={"user_id": str})
+#     return data
 
 
 # 将司机静止时出现的多余的定位地址去除
@@ -63,7 +71,7 @@ def point_scope_set(point, data_set, dis):
 
 
 # 使用司机的位置进行密度聚类,其中min_ps表示其周围的最少车辆数,d 表示geohash第几位相等
-def positon_dbscan(data_set, min_ps=5, d=7):
+def positon_dbscan(data_set, min_ps=10, d=7):
     core_objects = {}
     k_cluster = {}
     # 初始化核心对象集合
@@ -109,6 +117,7 @@ def positon_dbscan(data_set, min_ps=5, d=7):
                 del core_objects[i]
     return k_cluster, old_core_objects
 
+
 def data_write_file(data, k_cluster, city, file_name):
     fw = open(file_name, 'a')
     json_dict = dict()
@@ -120,28 +129,52 @@ def data_write_file(data, k_cluster, city, file_name):
         lat_list = [data.ix[i, "lat"] for i in k_cluster[k]]
         avg_lon = "%.6f" % (sum(lon_list) / float(len(lon_list)))
         avg_lat = "%.6f" % (sum(lat_list) / float(len(lat_list)))
-        result[key] = avg_lon + "," + avg_lat+","+str(len(lon_list))
+        result[key] = avg_lon + "," + avg_lat + "," + str(len(lon_list))
         json_dict[str(city)].append(result)
     json_str = json.dumps(json_dict)
     fw.write(json_str + "\n")
     fw.close()
 
 
+def get_smaple_by_city(data, percent=5):
+    # 获取司机的userId
+    user_id = set(data["user_id"])
+    sample_user_id = random.sample(user_id, int(len(user_id) / percent))
+    sample_data = data[data["user_id"].isin(sample_user_id)]
+    return sample_data.reset_index(drop=True)
+
+
 def diff_city_model_train(input_path):
     data = load_data(input_path)
-    transfrom_position(data)
     city_list = set(data["city_id"])
+    city_list.add(0)
     # 选择同一个区的数据进入训练
     for city in city_list:
         district_city_data = data[data["city_id"] == city]
-        district_city_data = district_city_data.reset_index(drop=True)
+        # 判断每个时期的司机数量
+        user_total = len(set(list(district_city_data["user_id"])))
+        # 如果该市的司机数量小于5000 则不进行抽样
+        district_city_data=district_city_data.reset_index(drop=True)
+        if user_total > 5000:
+            district_city_data = get_smaple_by_city(district_city_data)
+        # 对于不同活跃数量的司机设置不同的司机密度点
+        if user_total <= 500:
+            min_point = 3
+        elif 500 < user_total <= 2000:
+            min_point = 5
+        elif 2000 < user_total <= 5000:
+            min_point = 8
+        else:
+            min_point = 10
         # 从市区中过滤重复的数据
+        transfrom_position(district_city_data)
         filter_data = filter_repetition_logs(district_city_data)
         # 以区为单位训练样本数据
         print str(city) + " input sample train data: %d" % np.shape(filter_data)[0]
-        k_cluster, old_core_objects = positon_dbscan(filter_data)
+        k_cluster, old_core_objects = positon_dbscan(filter_data, min_point)
         # 计算结果转换为json 字符串
         data_write_file(filter_data, k_cluster, city, "data_set/%s0000.json" % str(city)[0:2])
 
+
 if __name__ == '__main__':
-    diff_city_model_train("data_set/positon.csv")
+    diff_city_model_train("data_set/a.csv")
